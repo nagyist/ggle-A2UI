@@ -14,12 +14,26 @@
  * limitations under the License.
  */
 
-export * from './A2uiSurface';
-export * from './adapter';
+import React from 'react';
+import {createReactComponent} from '../../../adapter';
+import {DividerApi} from '@a2ui/web_core/v0_9/basic_catalog';
+import {LEAF_MARGIN} from '../utils';
 
-// Export basic catalog components directly for 3P developers
-export * from './catalog/basic';
+export const Divider = createReactComponent(DividerApi, ({props}) => {
+  const isVertical = props.axis === 'vertical';
+  const style: React.CSSProperties = {
+    margin: LEAF_MARGIN,
+    border: 'none',
+    backgroundColor: '#ccc',
+  };
 
-// Export minimal catalog under a namespace to avoid symbol conflicts
-export * as MinimalCatalog from './catalog/minimal';
-export {minimalCatalog} from './catalog/minimal';
+  if (isVertical) {
+    style.width = '1px';
+    style.height = '100%';
+  } else {
+    style.width = '100%';
+    style.height = '1px';
+  }
+
+  return <div style={style} />;
+});

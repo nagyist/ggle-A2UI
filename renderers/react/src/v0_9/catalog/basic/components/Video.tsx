@@ -14,12 +14,17 @@
  * limitations under the License.
  */
 
-export * from './A2uiSurface';
-export * from './adapter';
+import React from 'react';
+import {createReactComponent} from '../../../adapter';
+import {VideoApi} from '@a2ui/web_core/v0_9/basic_catalog';
+import {getBaseLeafStyle} from '../utils';
 
-// Export basic catalog components directly for 3P developers
-export * from './catalog/basic';
+export const Video = createReactComponent(VideoApi, ({props}) => {
+  const style: React.CSSProperties = {
+    ...getBaseLeafStyle(),
+    width: '100%',
+    aspectRatio: '16/9',
+  };
 
-// Export minimal catalog under a namespace to avoid symbol conflicts
-export * as MinimalCatalog from './catalog/minimal';
-export {minimalCatalog} from './catalog/minimal';
+  return <video src={props.url} controls style={style} />;
+});
