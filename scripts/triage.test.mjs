@@ -38,7 +38,14 @@ const issue = (overrides = {}) => ({
   ...overrides,
 });
 
-const pr = (overrides = {}) => issue({pull_request: {url: 'x'}, ...overrides});
+// PRs default to an external contributor, the case the automation watches.
+const pr = (overrides = {}) =>
+  issue({
+    pull_request: {url: 'x'},
+    author_association: 'CONTRIBUTOR',
+    user: {login: 'contributor', type: 'User'},
+    ...overrides,
+  });
 
 const comment = (overrides = {}) => ({
   created_at: daysAgo(0),
@@ -148,13 +155,20 @@ describe('flagReason — issues', () => {
 });
 
 describe('flagReason — PRs', () => {
-  it('flags a PR stale beyond 1 day', () => {
+  it('flags a stale PR from an external contributor', () => {
     const item = pr({created_at: daysAgo(2)});
     assert.match(flagReason(item, [], NOW), /no human activity/);
   });
 
-  it('does not flag a fresh PR', () => {
+  it('does not flag a fresh external PR', () => {
     assert.equal(flagReason(pr({created_at: daysAgo(0)}), [], NOW), null);
+  });
+
+  it('never flags a maintainer-authored PR, even when stale', () => {
+    for (const association of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+      const item = pr({created_at: daysAgo(30), author_association: association});
+      assert.equal(flagReason(item, [], NOW), null, association);
+    }
   });
 });
 
@@ -206,7 +220,7 @@ describe('issueTriage reconciliation', () => {
   let calls;
 
   const makeGithub = openItems => {
-    calls = {addLabels: [], removeLabel: [], createComment: [], listComments: []};
+    calls = {addLabels: [], removeLabel: [], createComment: [], listComments: [], get: []};
     const rest = {
       issues: {
         listForRepo: 'listForRepo',
@@ -214,6 +228,13 @@ describe('issueTriage reconciliation', () => {
           calls.listComments.push(params.issue_number);
           const item = openItems.find(i => i.number === params.issue_number);
           return {data: item.__comments ?? []};
+        }),
+        // Live re-read used to guard against concurrent double-labeling.
+        // `__fresh` lets a test simulate another run having changed the label.
+        get: mock.fn(async params => {
+          calls.get.push(params.issue_number);
+          const item = openItems.find(i => i.number === params.issue_number);
+          return {data: item.__fresh ?? item};
         }),
         addLabels: mock.fn(async params => calls.addLabels.push(params.issue_number)),
         removeLabel: mock.fn(async params => calls.removeLabel.push(params.issue_number)),
@@ -269,8 +290,21 @@ describe('issueTriage reconciliation', () => {
     github = makeGithub([flagged, clean]);
     await issueTriage({github, context});
 
+    assert.equal(calls.get.length, 0); // no live re-read when state already agrees
     assert.equal(calls.addLabels.length, 0);
     assert.equal(calls.removeLabel.length, 0);
+    assert.equal(calls.createComment.length, 0);
+  });
+
+  it('does not add the label twice when a concurrent run already added it', async () => {
+    // Snapshot shows no label, but a live re-read finds another run beat us.
+    const item = issue({number: 14});
+    item.__fresh = issue({number: 14, labels: ['triage: flag']});
+    github = makeGithub([item]);
+    await issueTriage({github, context});
+
+    assert.deepEqual(calls.get, [14]); // we re-checked before mutating
+    assert.equal(calls.addLabels.length, 0); // ...and backed off
     assert.equal(calls.createComment.length, 0);
   });
 
